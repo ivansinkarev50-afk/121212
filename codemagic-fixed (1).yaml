@@ -1,0 +1,66 @@
+workflows:
+  vanta-wallet-ios:
+    name: VANTA WALLET - iOS IPA
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+    environment:
+      xcode: latest
+
+    scripts:
+      - name: Locate project files
+        script: |
+          set -e
+          PROJECT_DIR="$CM_BUILD_DIR"
+          if [ ! -f "$PROJECT_DIR/project.yml" ] && [ -f "$PROJECT_DIR/VantaWallet-GitHub-Upload/project.yml" ]; then
+            PROJECT_DIR="$PROJECT_DIR/VantaWallet-GitHub-Upload"
+          fi
+          if [ ! -f "$PROJECT_DIR/project.yml" ] || [ ! -d "$PROJECT_DIR/VantaWallet" ]; then
+            echo "ERROR: project.yml and VantaWallet source folder were not found."
+            echo "Repository contents:"
+            find "$CM_BUILD_DIR" -maxdepth 3 -print
+            exit 1
+          fi
+          echo "$PROJECT_DIR" > "$CM_BUILD_DIR/project_dir.txt"
+          echo "Using project directory: $PROJECT_DIR"
+
+      - name: Install XcodeGen
+        script: |
+          brew install xcodegen
+
+      - name: Generate Xcode project
+        script: |
+          set -e
+          PROJECT_DIR="$(cat "$CM_BUILD_DIR/project_dir.txt")"
+          cd "$PROJECT_DIR"
+          xcodegen generate
+          ls -la VantaWallet.xcodeproj
+
+      - name: Build unsigned iOS app
+        script: |
+          set -e
+          PROJECT_DIR="$(cat "$CM_BUILD_DIR/project_dir.txt")"
+          xcodebuild \
+            -project "$PROJECT_DIR/VantaWallet.xcodeproj" \
+            -scheme "VantaWallet" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$CM_BUILD_DIR/build/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package unsigned IPA for Sideloadly
+        script: |
+          set -e
+          APP_PATH="$CM_BUILD_DIR/build/DerivedData/Build/Products/Release-iphoneos/VANTA WALLET.app"
+          test -d "$APP_PATH"
+          mkdir -p "$CM_BUILD_DIR/build/Payload"
+          cp -R "$APP_PATH" "$CM_BUILD_DIR/build/Payload/"
+          cd "$CM_BUILD_DIR/build"
+          /usr/bin/zip -r "$CM_BUILD_DIR/build/VANTA-WALLET-unsigned.ipa" Payload
+          test -f "$CM_BUILD_DIR/build/VANTA-WALLET-unsigned.ipa"
+
+    artifacts:
+      - build/VANTA-WALLET-unsigned.ipa
+      - build/DerivedData/Build/Products/Release-iphoneos/*.app
